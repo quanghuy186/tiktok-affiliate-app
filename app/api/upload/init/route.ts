@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const { title, fileSize } = await request.json()
 
   const res = await fetch(
-    'https://open.tiktokapis.com/v2/post/publish/video/init/',
+    'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/',
     {
       method: 'POST',
       headers: {
@@ -20,13 +20,6 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json; charset=UTF-8',
       },
       body: JSON.stringify({
-        post_info: {
-          title: title || ' ',
-          privacy_level: 'SELF_ONLY',
-          disable_duet: false,
-          disable_comment: false,
-          disable_stitch: false,
-        },
         source_info: {
           source: 'FILE_UPLOAD',
           video_size: fileSize,
