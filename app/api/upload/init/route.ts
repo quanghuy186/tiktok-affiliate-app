@@ -9,26 +9,46 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'not_authenticated' }, { status: 401 })
   }
 
-  const { title, fileSize } = await request.json()
+  const { fileSize, title, scheduledAt } = await request.json()
 
-  const res = await fetch(
-    'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-      },
-      body: JSON.stringify({
-        source_info: {
-          source: 'FILE_UPLOAD',
-          video_size: fileSize,
-          chunk_size: fileSize,
-          total_chunk_count: 1,
-        },
-      }),
-    }
-  )
+  // If scheduled or has title → use direct post endpoint (requires video.publish)
+  // Otherwise → use inbox/draft endpoint (requires video.upload)
+  const useDirectPost = !!(scheduledAt || title)
+  const endpoint = useDirectPost
+    ? 'https://open.tiktokapis.com/v2/post/publish/video/init/'
+    : 'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/'
+
+  const postInfo = useDirectPost
+    ? {
+        title: title || ' ',
+        privacy_level: 'SELF_ONLY',
+        disable_duet: false,
+        disable_comment: false,
+        disable_stitch: false,
+        ...(scheduledAt
+          ? { scheduled_publish_time: Math.floor(new Date(scheduledAt).getTime() / 1000) }
+          : {}),
+      }
+    : undefined
+
+  const body: Record<string, unknown> = {
+    source_info: {
+      source: 'FILE_UPLOAD',
+      video_size: fileSize,
+      chunk_size: fileSize,
+      total_chunk_count: 1,
+    },
+  }
+  if (postInfo) body.post_info = postInfo
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+    },
+    body: JSON.stringify(body),
+  })
 
   const data = await res.json()
 
@@ -39,5 +59,6 @@ export async function POST(request: NextRequest) {
   return Response.json({
     publish_id: data.data.publish_id,
     upload_url: data.data.upload_url,
+    scheduled: !!scheduledAt,
   })
 }
