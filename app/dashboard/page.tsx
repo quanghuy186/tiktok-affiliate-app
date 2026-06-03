@@ -11,8 +11,10 @@ export default function Dashboard() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [title, setTitle] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'initializing' | 'uploading' | 'processing' | 'done' | 'error'>('idle')
+  const [progress, setProgress] = useState(0)
   const [publishId, setPublishId] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -25,24 +27,75 @@ export default function Dashboard() {
 
   async function handleUpload() {
     if (!file) return
-    setStatus('uploading')
+    setStatus('initializing')
+    setErrorMsg('')
+    setProgress(0)
 
-    const formData = new FormData()
-    formData.append('video', file)
-    formData.append('title', title)
+    // Step 1: Get upload URL from TikTok via our server
+    const initRes = await fetch('/api/upload/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, fileSize: file.size }),
+    })
+    const initData = await initRes.json()
 
-    const res = await fetch('/api/upload', { method: 'POST', body: formData })
-    const data = await res.json()
-
-    if (data.success) {
-      setPublishId(data.publish_id)
-      setStatus('done')
-      setFile(null)
-      setTitle('')
-      if (fileRef.current) fileRef.current.value = ''
-    } else {
+    if (!initRes.ok || !initData.upload_url) {
       setStatus('error')
+      setErrorMsg(JSON.stringify(initData.detail ?? initData))
+      return
     }
+
+    const { publish_id, upload_url } = initData
+
+    // Step 2: Upload video directly to TikTok CDN from browser
+    setStatus('uploading')
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
+        }
+        xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)))
+        xhr.onerror = () => reject(new Error('Network error'))
+        xhr.open('PUT', upload_url)
+        xhr.setRequestHeader('Content-Type', 'video/mp4')
+        xhr.setRequestHeader('Content-Range', `bytes 0-${file.size - 1}/${file.size}`)
+        xhr.send(file)
+      })
+    } catch (e: unknown) {
+      setStatus('error')
+      setErrorMsg(e instanceof Error ? e.message : 'Upload failed')
+      return
+    }
+
+    // Step 3: Poll for processing status
+    setStatus('processing')
+    setPublishId(publish_id)
+
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const statusRes = await fetch(`/api/upload/status?publish_id=${publish_id}`)
+      const statusData = await statusRes.json()
+      const processStatus = statusData?.data?.status
+
+      if (processStatus === 'PUBLISH_COMPLETE') {
+        setStatus('done')
+        return
+      }
+      if (processStatus === 'FAILED') {
+        setStatus('error')
+        setErrorMsg('TikTok xử lý thất bại')
+        return
+      }
+    }
+
+    setStatus('done')
+  }
+
+  const statusLabel: Record<string, string> = {
+    initializing: 'Đang khởi tạo...',
+    uploading: `Đang upload... ${progress}%`,
+    processing: 'TikTok đang xử lý...',
   }
 
   return (
@@ -84,23 +137,32 @@ export default function Dashboard() {
           />
         </div>
 
+        {status === 'uploading' && (
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div className="bg-black h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        )}
+
         <button
           onClick={handleUpload}
-          disabled={!file || status === 'uploading'}
+          disabled={!file || status === 'initializing' || status === 'uploading' || status === 'processing'}
           className="px-6 py-3 bg-black text-white rounded-lg disabled:opacity-50"
         >
-          {status === 'uploading' ? 'Đang upload...' : 'Đăng lên TikTok'}
+          {statusLabel[status] ?? 'Đăng lên TikTok'}
         </button>
 
         {status === 'done' && (
           <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
-            Upload thành công! Publish ID: <code className="text-xs">{publishId}</code>
+            Đăng thành công! Video đang được xử lý trên TikTok.
+            <br />
+            <span className="text-xs text-gray-500">Publish ID: {publishId}</span>
           </div>
         )}
 
         {status === 'error' && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            Upload thất bại. Thử lại nhé.
+            <p className="font-medium">Upload thất bại.</p>
+            {errorMsg && <pre className="text-xs mt-1 whitespace-pre-wrap">{errorMsg}</pre>}
           </div>
         )}
       </div>
