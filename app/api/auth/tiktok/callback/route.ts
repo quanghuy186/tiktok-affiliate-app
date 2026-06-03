@@ -30,21 +30,27 @@ export async function GET(request: NextRequest) {
     }),
   })
 
-  if (!tokenRes.ok) {
+  const token = await tokenRes.json()
+
+  // Handle both response formats: direct or wrapped in data
+  const accessToken = token.access_token ?? token.data?.access_token
+
+  if (!tokenRes.ok || !accessToken) {
+    // Redirect with debug info
+    const errParam = encodeURIComponent(JSON.stringify(token))
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_BASE_URL}/?error=token_failed`
+      `${process.env.NEXT_PUBLIC_BASE_URL}/?error=token_failed&detail=${errParam}`
     )
   }
 
-  const token = await tokenRes.json()
+  const expiresIn = token.expires_in ?? token.data?.expires_in ?? 86400
 
   const response = NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/dashboard`)
-
-  response.cookies.set('tiktok_access_token', token.access_token, {
+  response.cookies.set('tiktok_access_token', accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: token.expires_in ?? 60 * 60 * 24,
+    maxAge: expiresIn,
     path: '/',
   })
 
