@@ -10,8 +10,6 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies()
   const savedState = cookieStore.get('tiktok_oauth_state')?.value
   const codeVerifier = cookieStore.get('tiktok_code_verifier')?.value
-  cookieStore.delete('tiktok_oauth_state')
-  cookieStore.delete('tiktok_code_verifier')
 
   if (error || !code || !state || state !== savedState || !codeVerifier) {
     return NextResponse.redirect(
@@ -40,7 +38,9 @@ export async function GET(request: NextRequest) {
 
   const token = await tokenRes.json()
 
-  cookieStore.set('tiktok_access_token', token.access_token, {
+  const response = NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/dashboard`)
+
+  response.cookies.set('tiktok_access_token', token.access_token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -48,5 +48,5 @@ export async function GET(request: NextRequest) {
     path: '/',
   })
 
-  return NextResponse.redirect(`${process.env.NEXT_PUBLIC_BASE_URL}/dashboard`)
+  return response
 }
