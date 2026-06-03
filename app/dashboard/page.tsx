@@ -79,11 +79,7 @@ export default function Dashboard() {
     const initRes = await fetch('/api/upload/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileSize: file.size,
-        title: title.trim() || undefined,
-        scheduledAt: scheduledAt || undefined,
-      }),
+      body: JSON.stringify({ fileSize: file.size }),
     })
     const initData = await initRes.json()
 
@@ -93,7 +89,7 @@ export default function Dashboard() {
       return
     }
 
-    const { publish_id, upload_url, scheduled } = initData
+    const { publish_id, upload_url } = initData
     setStatus('uploading')
 
     try {
@@ -116,7 +112,7 @@ export default function Dashboard() {
     }
 
     setPublishId(publish_id)
-    setIsScheduled(!!scheduled)
+    setIsScheduled(!!scheduledAt)
     setStatus('done')
   }
 
